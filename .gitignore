@@ -1,4 +1,5 @@
 Data/
 *.zip
 *.xlsx
-*/.ipynb_checkpoints/*
+.ipynb_checkpoints
+__pycache__
