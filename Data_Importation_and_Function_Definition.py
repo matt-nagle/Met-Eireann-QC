@@ -357,11 +357,22 @@ def plot_wow_data(gdf_of_interest, type_of_plot = "Air Temperature",
     
 
     ##### Plot of Buffer #####
-    if(buffer_val > 0):
-        new_gdf_of_interest = gdf_of_interest.copy()
-        new_gdf_of_interest['geometry'] = new_gdf_of_interest['geometry'].buffer(buffer_val)
+    if(isinstance(buffer_val, int)):
+        if(buffer_val > 0):
+            new_gdf_of_interest = gdf_of_interest.copy()
+            new_gdf_of_interest['geometry'] = new_gdf_of_interest['geometry'].buffer(buffer_val)
 
-        new_gdf_of_interest["geometry"].plot(ax=ax, alpha = 0.2)
+            new_gdf_of_interest["geometry"].plot(ax=ax, alpha = 0.2)
+    elif(isinstance(buffer_val, list)):
+        new_gdf_of_interest = gdf_of_interest.copy()
+        new_gdf_of_interest['buffer'] = buffer_val
+        new_gdf_of_interest['geometry'] = new_gdf_of_interest['geometry'].buffer(distance = new_gdf_of_interest['buffer'])
+        
+        new_gdf_of_interest = new_gdf_of_interest.loc[new_gdf_of_interest["buffer"] != 0,:]
+
+        new_gdf_of_interest['geometry'].plot(ax=ax, alpha = 0.2)
+    else:
+        print("Error: Type of buffer_val must be integer or list!")
     
             
     ##### Flag Stations #####

@@ -64,6 +64,7 @@ ivec titanlibcustom::range_check_climatology(const Points& points,
     }
 
     ivec flags(s, 0);
+    ivec mean_temp_val(s, 0); // MN - Add vector to store the mean_temp values
 
     for(int i = 0; i < s; i++) {
         // leave the index to 0 if its the same max/min applied to everything
@@ -77,12 +78,15 @@ ivec titanlibcustom::range_check_climatology(const Points& points,
         double mean_pos = t + pos[pos_i];
         double mean_neg = t + neg[neg_i];
 
+        mean_temp_val[i] = t; // MN - Store the mean_temp value
+
         // loop over the vectors and set the flags (0 = ok and 1 = bad)
         if(!titanlibcustom::is_valid(values[i]) || values[i] < mean_neg || values[i] > mean_pos) {
             flags[i] = 1;
         }
     }
-    return flags;
+    //return flags;
+    return mean_temp_val;
 }
 
 double mean_temp(float lat, int unixtime) {
