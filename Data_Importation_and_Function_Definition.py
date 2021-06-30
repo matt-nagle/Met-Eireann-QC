@@ -1,5 +1,6 @@
 import geopandas
 import pandas as pd
+import netCDF4
 import numpy as np
 
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -7,10 +8,14 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 
-# In[2]:
+###########################################################################################################
+###########################################################################################################
+#########################################    DATA IMPORTATION    ##########################################
+###########################################################################################################
+###########################################################################################################
 
-## Import Boundaries Data
 
+##### Import Boundaries Data #####
 
 base_path = r"/home/matt/Documents/Met_Eireann/Data/"
 
@@ -25,25 +30,31 @@ NI_counties = geopandas.read_file(path_to_NI_boundaries_data)
 ROI_counties = ROI_counties.to_crs({'init': 'epsg:29902'}) # Convert maps to the same coordinate reference system
 NI_counties = NI_counties.to_crs({'init': 'epsg:29902'})  # Convert maps to the same coordinate reference system
 
-# Plot counties
-# ax = ROI_counties["geometry"].plot()
-# NI_counties["geometry"].plot(ax=ax)
+
+
+
+
+##### Import Elevation Data #####
+
+path_to_elevation_data = base_path + r"Maps/section_with_edge_to_grib_final02.grib1.nc"
+
+# Import the elevation data with a 30 metre resolution
+raw_elevations_30m = netCDF4.Dataset(path_to_elevation_data)
+
+# Extract the latitude, longitude and altitude from the raw data
+elevation_data_lat = raw_elevations_30m['latitude'][:]
+elevation_data_long = raw_elevations_30m['longitude'][:]
+elevation_data_alt = raw_elevations_30m['altitude'][:]
+
+# Define latitude and longitude as numpy arrays
+elevation_data_lat_array = np.asarray(elevation_data_lat)
+elevation_data_long_array = np.asarray(elevation_data_long)
 
 
 
 
 
-
-
-
-
-
-
-
-
-# In[3]:
-
-## Import WOW Data
+##### Import WOW Data #####
 
 # Import Raw Wow data for the month of May
 path_to_raw_wow_data = base_path + r"WOW_May_2021.csv"
@@ -62,14 +73,12 @@ raw_wow["Time"] = tmp2.iloc[:,1]
 raw_wow.loc[raw_wow["Time"].isna(), "Time"] = "00:00:00" # Replace "missing" values with midnight
 
 
-
 # Define a dataframe for the Rain Accumulation data
 rain_wow = raw_wow[['Id', 'Site Id', 'Longitude', 'Latitude', 'Report Date / Time',
                     'Day', 'Month', 'Year', 'Time', 'Rainfall Accumulation']].copy()
 
 # Remove any missing values
 rain_wow_comp = rain_wow.copy().dropna()
-
 
 
 # Define a dataframe for the Air Temperature data
@@ -83,19 +92,9 @@ temp_wow_comp = temp_wow.copy().dropna()
 
 
 
-
-
-
-
-
-
-# In[4]:
-    
-## Import Official Data
-
+##### Import Official Data #####
 
 ##### Temperature Data #####
-
 
 # Import Raw Official data for the month of May
 path_to_raw_official_data = base_path + r"All stations May 2021 Full (updated lat long).csv"
@@ -125,8 +124,6 @@ temp_official_comp.replace("May", "05", inplace=True, regex=True) # Replace mont
 temp_official_comp.rename(columns={"t1dry":"Air Temperature", # Select t1dry as our temp obs
                                    "long":"Longitude", 
                                    "lat":"Latitude"}, inplace=True) 
-
-
 
 
 ##### Rainfall Data #####
@@ -163,15 +160,77 @@ rain_official_comp.rename(columns={"totalpluvioaccrt_nrt":"Rainfall Accumulation
 
 
 
+###########################################################################################################
+###########################################################################################################
+#######################################    FUNCTION DEFINITION   ##########################################
+###########################################################################################################
+###########################################################################################################
+
+
+##### Define a function to find the closest value in a 1D array #####
+
+def find_nearest_point_1D(array_to_search, value, print_nearest_val = True):
+    """
+    This function finds the closest value in a 1D array
+    
+    Inputs: 
+    1. array_to_search is the array to be searched
+    2. value 
+    3. print_nearest_val must be a boolean True/False 
+    
+    Outputs:
+    1. index of the closest value in the array
+    """  
+    array_to_search = np.asarray(array_to_search)
+    idx = (np.abs(array_to_search - value)).argmin()
+    
+    if(print_nearest_val):
+        print("Nearest Value:",array_to_search[idx])
+        
+    return idx
 
 
 
-# In[6]:
 
-## Define a function to isolate the data from the date, time and data of interest
+
+
+##### Define a function to add the elevation data to a geo dataframe #####
+
+def add_elevation(gdf_of_interest, ref_lat = elevation_data_lat_array, ref_long = elevation_data_long_array):
+    """
+    This function adds an elevation data column to a geo dataframe
+    
+    Inputs: 
+    1. gdf_of_interest is the geodataframe that the Altitude data will be added to
+    2. ref_lat is the array of reference latitudes, in our case the lat coordinates from the 30m elev data
+    3. ref_lat is the array of reference longitudes, in our case the long coordinates from the 30m elev data
+    
+    Outputs:
+    1. None, the Altitude column is added to the gdf_of_interest
+    """  
+    station_altitudes = []
+    for index in gdf_of_interest.index:
+        closest_lat_index = find_nearest_point_1D(ref_lat, gdf_of_interest.loc[index, "Latitude"], 
+                                                  print_nearest_val=False)
+        closest_long_index = find_nearest_point_1D(ref_long, gdf_of_interest.loc[index, "Longitude"], 
+                                                   print_nearest_val=False)
+        
+        station_altitudes.append(elevation_data_alt[0, 0, closest_lat_index, closest_long_index])
+    
+    gdf_of_interest["Altitude"] = station_altitudes
+    
+    return
+
+
+
+
+
+
+
+##### Define a function to isolate the data from the date, time and data of interest #####
 
 def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interest, time_of_interest,
-                             type_of_plot = "Air Temperature"):
+                             type_of_plot = "Air Temperature", add_elevation_bool = True):
     """
     This function isolates the data of interest.
     
@@ -181,6 +240,7 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
     3. year_of_interest must be "YYYY"
     4. time_of_interest must be of the 24 hour format "HH" and will isolate data from the times between HH and HH+1
     5. type_of_plot must be either "Rainfall Accumulation" or "Air Temperature"
+    6. add_elevation must be boolean True/False about whether to add the elevation data or not
     
     Outputs:
     1. geodataframe of wow data of interest
@@ -299,6 +359,21 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
         
         
         
+        ##### Add Elevation Data #####
+        
+        if(add_elevation_bool):
+            add_elevation(gdf_of_interest = gdf_wow,
+                          ref_lat = elevation_data_lat_array,
+                          ref_long = elevation_data_long_array)
+            add_elevation(gdf_of_interest = gdf_official,
+                          ref_lat = elevation_data_lat_array,
+                          ref_long = elevation_data_long_array)
+            add_elevation(gdf_of_interest = gdf_combined,
+                          ref_lat = elevation_data_lat_array,
+                          ref_long = elevation_data_long_array)
+        
+        
+        
     return gdf_wow, gdf_official, gdf_combined 
 
 
@@ -313,9 +388,8 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
 
 
 
-# In[7]:
     
-## Define a function that plots the data of interest
+##### Define a function that plots the data of interest #####
 
 
 def plot_wow_data(gdf_of_interest, type_of_plot = "Air Temperature", 
