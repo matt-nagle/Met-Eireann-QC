@@ -72,21 +72,23 @@ raw_wow["Time"] = tmp2.iloc[:,1]
 
 raw_wow.loc[raw_wow["Time"].isna(), "Time"] = "00:00:00" # Replace "missing" values with midnight
 
+raw_wow["Hour"] = raw_wow["Time"].str[:2]
 
 # Define a dataframe for the Rain Accumulation data
 rain_wow = raw_wow[['Id', 'Site Id', 'Longitude', 'Latitude', 'Report Date / Time',
-                    'Day', 'Month', 'Year', 'Time', 'Rainfall Accumulation']].copy()
+                    'Day', 'Month', 'Year', 'Time', 'Hour', 'Rainfall Accumulation', 'Rainfall Rate']].copy()
 
-# Remove any missing values
-rain_wow_comp = rain_wow.copy().dropna()
 
+# Isolate the last observation every hour to reverse engineer the Hourly Rainfall Accumulation
+rain_wow_hourly_obs = rain_wow.drop_duplicates(subset = ["Site Id", "Hour", "Day", "Month", "Year"], keep = "last").copy()
+
+hourly_rainfall_accumulation = rain_wow_hourly_obs.groupby(["Site Id", "Day", "Month", "Year"])["Rainfall Accumulation"].diff().fillna(0)
+rain_wow_hourly_obs["Rainfall Accumulation Hourly"] = hourly_rainfall_accumulation
 
 # Define a dataframe for the Air Temperature data
 temp_wow = raw_wow[['Id', 'Site Id', 'Longitude', 'Latitude', 'Report Date / Time',
-                    'Day', 'Month', 'Year', 'Time', 'Air Temperature']].copy()
+                    'Day', 'Month', 'Year', 'Time', 'Hour', 'Air Temperature']].copy()
 
-# Remove any missing values
-temp_wow_comp = temp_wow.copy().dropna()
 
 
 
@@ -109,21 +111,19 @@ raw_official["Day"] = tmp.iloc[:,0]
 raw_official["Month"] = tmp.iloc[:,1]
 raw_official["Year"] = tmp2.iloc[:,0]
 raw_official["Time"] = tmp2.iloc[:,1]
+raw_official["Hour"] = raw_official["Time"].str[:2]
 
 
 # Define a dataframe for the Temperature data
-temp_official = raw_official[['filetag', 'stationid', 'long', 'lat', 'datein','t1dry', 't2dry',
-                              'Day', 'Month', 'Year', 'Time']].copy()
+temp_official = raw_official[['filetag', 'stationid', 'long', 'lat', 'datein',
+                              'Day', 'Month', 'Year', 'Time', 'Hour', 't1dry', 't2dry']].copy()
 # Replace values of -99.0 with missing values to be removed
 temp_official.loc[temp_official["t1dry"] == -99.0, "t1dry"] = np.nan
 
-
-# Remove any missing values
-temp_official_comp = temp_official.copy().dropna()
-temp_official_comp.replace("May", "05", inplace=True, regex=True) # Replace month with number
-temp_official_comp.rename(columns={"t1dry":"Air Temperature", # Select t1dry as our temp obs
-                                   "long":"Longitude", 
-                                   "lat":"Latitude"}, inplace=True) 
+temp_official.replace("May", "05", inplace=True, regex=True) # Replace month with number
+temp_official.rename(columns={"t1dry":"Air Temperature", # Select t1dry as our temp obs
+                              "long":"Longitude", 
+                              "lat":"Latitude"}, inplace=True) 
 
 
 ##### Rainfall Data #####
@@ -140,18 +140,20 @@ raw_official_rain["Day"] = tmp.iloc[:,0]
 raw_official_rain["Month"] = tmp.iloc[:,1]
 raw_official_rain["Year"] = tmp2.iloc[:,0]
 raw_official_rain["Time"] = tmp2.iloc[:,1]
+raw_official_rain["Hour"] = raw_official_rain["Time"].str[:2]
 
 # Define a dataframe for the Rain Accumulation data
-rain_official = raw_official_rain[['filetag', 'stationid', 'long', 'lat', 'datein', 
-                                   'totalpluvioaccrt_nrt','totalpluvioaccnrt', 'pluviohourrain',
-                                   'Day', 'Month', 'Year', 'Time']]
+rain_official = raw_official_rain[['filetag', 'stationid', 'long', 'lat', 'datein',
+                                   'Day', 'Month', 'Year', 'Time', 'Hour',
+                                   'totalpluvioaccrt_nrt','totalpluvioaccnrt', 'pluviohourrain']].copy()
 
-# Remove any missing values
-rain_official_comp = rain_official.copy().dropna()
-rain_official_comp.replace("May", "05", inplace=True, regex=True) # Replace month with number
-rain_official_comp.rename(columns={"totalpluvioaccrt_nrt":"Rainfall Accumulation", # Select real time rainfall as our value
-                                   "long":"Longitude", 
-                                   "lat":"Latitude"}, inplace=True)
+# Define an additional column for the total rainfall accumulation rather than the accumulation over the last hour
+rain_official["Rainfall Accumulation"] = rain_official.groupby(["stationid", "Day", "Month", "Year"])["totalpluvioaccnrt"].cumsum()
+
+rain_official.replace("May", "05", inplace=True, regex=True) # Replace month with number
+rain_official.rename(columns={"totalpluvioaccnrt":"Rainfall Accumulation Hourly",
+                              "long":"Longitude", 
+                              "lat":"Latitude"}, inplace=True)
 
 
 
@@ -216,6 +218,8 @@ def add_elevation(gdf_of_interest, ref_lat = elevation_data_lat_array, ref_long 
                                                    print_nearest_val=False)
         
         station_altitudes.append(elevation_data_alt[0, 0, closest_lat_index, closest_long_index])
+        
+        
     
     gdf_of_interest["Altitude"] = station_altitudes
     
@@ -230,7 +234,8 @@ def add_elevation(gdf_of_interest, ref_lat = elevation_data_lat_array, ref_long 
 ##### Define a function to isolate the data from the date, time and data of interest #####
 
 def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interest, time_of_interest,
-                             type_of_plot = "Air Temperature", add_elevation_bool = True):
+                             type_of_data = "Temperature", add_elevation_bool = True, 
+                             remove_missing_val = True, cols_to_remove_missing_val = None):
     """
     This function isolates the data of interest.
     
@@ -239,8 +244,12 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
     2. month_of_interest must be "MM"
     3. year_of_interest must be "YYYY"
     4. time_of_interest must be of the 24 hour format "HH" and will isolate data from the times between HH and HH+1
-    5. type_of_plot must be either "Rainfall Accumulation" or "Air Temperature"
-    6. add_elevation must be boolean True/False about whether to add the elevation data or not
+    5. type_of_data must be either "Rainfall" or "Temperature"
+    6. add_elevation must be boolean True/False which dictates whether to add the elevation data or not
+    7. remove_missing_val must be a boolean True/False which dictates whether to remove rows with missing values
+    8. cols_to_remove_missing_val must be a list of columns to consider when looking for missing values,
+       by default it will remove rows with ANY missing values however if you only care about Rainfall Accumulation
+       then you can choose to only remove rows with missing values in that to preserve the maximum amount of data
     
     Outputs:
     1. geodataframe of wow data of interest
@@ -248,27 +257,33 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
     3. geodataframe of combined data of interest
     """  
 
-    if type_of_plot == "Rainfall Accumulation":
+    if(type_of_data == "Rainfall"):
         
         ##### WOW Data #####
         
         # Isolate the data at that date and time
-        rain_wow_comp_time_of_int = rain_wow_comp.loc[(rain_wow_comp["Day"] == day_of_interest) & 
-                                                      (rain_wow_comp["Month"] == month_of_interest) &
-                                                      (rain_wow_comp["Year"] == year_of_interest) & 
-                                                      (rain_wow_comp["Time"].str[:2] == time_of_interest),].copy()
+        rain_wow_time_of_int = rain_wow.loc[(rain_wow["Day"] == day_of_interest) & 
+                                                      (rain_wow["Month"] == month_of_interest) &
+                                                      (rain_wow["Year"] == year_of_interest) & 
+                                                      (rain_wow["Time"].str[:2] == time_of_interest),].copy()
 
         
         # In the rainfall accumulation case we want to keep only the last observation 
         # before the hour of interest is finished
-        rain_wow_comp_time_of_int_last_obs = rain_wow_comp_time_of_int.drop_duplicates(subset="Site Id", 
-                                                                                       keep="last")
+        rain_wow_time_of_int_last_obs = rain_wow_time_of_int.drop_duplicates(subset="Site Id", 
+                                                                                       keep="last").copy()
+        
+        
+        # merge with dataset containing the hourly rainfall accumulation
+        merged_dataset = pd.merge(rain_wow_time_of_int_last_obs, rain_wow_hourly_obs[["Id", "Rainfall Accumulation Hourly"]], on="Id")
+        # Make sure there are no repeated indexes which would cause issues
+        merged_dataset.reset_index(inplace=True) 
 
         # Convert data of interest into a GeoDataFrame for plotting
-        gdf_wow = geopandas.GeoDataFrame(rain_wow_comp_time_of_int_last_obs, 
+        gdf_wow = geopandas.GeoDataFrame(merged_dataset, 
                                          geometry=geopandas.points_from_xy(
-                                             rain_wow_comp_time_of_int_last_obs.Longitude, 
-                                             rain_wow_comp_time_of_int_last_obs.Latitude))
+                                             merged_dataset.Longitude, 
+                                             merged_dataset.Latitude))
         
         gdf_wow.crs = {"init":"epsg:4326"} # initialise the dataframe to have a crs
         gdf_wow = gdf_wow.to_crs({'init': 'epsg:29902'}) # convert crs to Irish Grid Projection
@@ -277,21 +292,21 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
         ##### Official Data #####
         
         # Isolate the data at that date and time
-        rain_official_comp_time_of_int = rain_official_comp.loc[(rain_official_comp["Day"] == day_of_interest) & 
-                                                                (rain_official_comp["Month"] == month_of_interest) &
-                                                                (rain_official_comp["Year"] == year_of_interest) & 
-                                                                (rain_official_comp["Time"].str[:2] == time_of_interest),].copy()
+        rain_official_time_of_int = rain_official.loc[(rain_official["Day"] == day_of_interest) & 
+                                                                (rain_official["Month"] == month_of_interest) &
+                                                                (rain_official["Year"] == year_of_interest) & 
+                                                                (rain_official["Time"].str[:2] == time_of_interest),].copy()
         
         # In the rainfall accumulation case we want to keep only the last observation 
         # before the hour of interest is finished
-        rain_official_comp_time_of_int_last_obs = rain_official_comp_time_of_int.drop_duplicates(subset="stationid",
-                                                                                                 keep="last")
+        rain_official_time_of_int_last_obs = rain_official_time_of_int.drop_duplicates(subset="stationid",
+                                                                                                 keep="last").copy()
 
         # Convert data of interest into a GeoDataFrame for plotting
-        gdf_official = geopandas.GeoDataFrame(rain_official_comp_time_of_int_last_obs, 
+        gdf_official = geopandas.GeoDataFrame(rain_official_time_of_int_last_obs, 
                                               geometry=geopandas.points_from_xy(
-                                                  rain_official_comp_time_of_int_last_obs.Longitude, 
-                                                  rain_official_comp_time_of_int_last_obs.Latitude))
+                                                  rain_official_time_of_int_last_obs.Longitude, 
+                                                  rain_official_time_of_int_last_obs.Latitude))
         
         gdf_official.crs = {"init":"epsg:4326"} # initialise the dataframe to have a crs
         gdf_official = gdf_official.to_crs({'init': 'epsg:29902'}) # convert crs to Irish Grid Projection
@@ -301,28 +316,30 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
         
         # Combine data frames
         gdf_combined = gdf_wow.append(gdf_official)
+        # Make sure there are no repeated indexes which would cause issues
+        gdf_combined.reset_index(inplace=True) 
         
         
-    elif type_of_plot == "Air Temperature":
+    elif type_of_data == "Temperature":
         
         ##### WOW Data #####
         
         # Isolate the data at that date and time
-        temp_wow_comp_time_of_int = temp_wow_comp.loc[(temp_wow_comp["Day"] == day_of_interest) & 
-                                                      (temp_wow_comp["Month"] == month_of_interest) &
-                                                      (temp_wow_comp["Year"] == year_of_interest) & 
-                                                      (temp_wow_comp["Time"].str[:2] == time_of_interest),].copy()
+        temp_wow_time_of_int = temp_wow.loc[(temp_wow["Day"] == day_of_interest) & 
+                                                      (temp_wow["Month"] == month_of_interest) &
+                                                      (temp_wow["Year"] == year_of_interest) & 
+                                                      (temp_wow["Time"].str[:2] == time_of_interest),].copy()
         
         # In the temperature case we want to keep only the last observation 
         # before the hour of interest is finished
-        temp_wow_comp_time_of_int_last_obs = temp_wow_comp_time_of_int.drop_duplicates(subset="Site Id", 
-                                                                                       keep="last")
+        temp_wow_time_of_int_last_obs = temp_wow_time_of_int.drop_duplicates(subset="Site Id", 
+                                                                                       keep="last").copy()
 
         # Convert data of interest into a GeoDataFrame for plotting
-        gdf_wow = geopandas.GeoDataFrame(temp_wow_comp_time_of_int_last_obs,
+        gdf_wow = geopandas.GeoDataFrame(temp_wow_time_of_int_last_obs,
                                          geometry=geopandas.points_from_xy(
-                                             temp_wow_comp_time_of_int_last_obs.Longitude, 
-                                             temp_wow_comp_time_of_int_last_obs.Latitude))
+                                             temp_wow_time_of_int_last_obs.Longitude, 
+                                             temp_wow_time_of_int_last_obs.Latitude))
         
         gdf_wow.crs = {"init":"epsg:4326"} # initialise the dataframe to have a crs
         gdf_wow = gdf_wow.to_crs({'init': 'epsg:29902'}) # convert crs to Irish Grid Projection
@@ -331,21 +348,21 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
         ##### Official Data #####
         
         # Isolate the data at that date and time
-        temp_official_comp_time_of_int = temp_official_comp.loc[(temp_official_comp["Day"] == day_of_interest) & 
-                                                                (temp_official_comp["Month"] == month_of_interest) &
-                                                                (temp_official_comp["Year"] == year_of_interest) & 
-                                                                (temp_official_comp["Time"].str[:2] == time_of_interest),].copy()
+        temp_official_time_of_int = temp_official.loc[(temp_official["Day"] == day_of_interest) & 
+                                                                (temp_official["Month"] == month_of_interest) &
+                                                                (temp_official["Year"] == year_of_interest) & 
+                                                                (temp_official["Time"].str[:2] == time_of_interest),].copy()
         
         # In the temperature case we want to keep only the last observation 
         # before the hour of interest is finished
-        temp_offical_comp_time_of_int_last_obs = temp_official_comp_time_of_int.drop_duplicates(subset="stationid",
-                                                                                                keep="last")
+        temp_offical_time_of_int_last_obs = temp_official_time_of_int.drop_duplicates(subset="stationid",
+                                                                                                keep="last").copy()
 
         # Convert data of interest into a GeoDataFrame for plotting
-        gdf_official = geopandas.GeoDataFrame(temp_offical_comp_time_of_int_last_obs,
+        gdf_official = geopandas.GeoDataFrame(temp_offical_time_of_int_last_obs,
                                               geometry=geopandas.points_from_xy(
-                                                  temp_offical_comp_time_of_int_last_obs.Longitude, 
-                                                  temp_offical_comp_time_of_int_last_obs.Latitude))
+                                                  temp_offical_time_of_int_last_obs.Longitude, 
+                                                  temp_offical_time_of_int_last_obs.Latitude))
         
         gdf_official.crs = {"init":"epsg:4326"} # initialise the dataframe to have a crs
         gdf_official = gdf_official.to_crs({'init': 'epsg:29902'}) # convert crs to Irish Grid Projection
@@ -356,21 +373,31 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
         
         # Combine data frames
         gdf_combined = gdf_wow.append(gdf_official)
+        # Make sure there are no repeated indexes which would cause issues
+        gdf_combined.reset_index(inplace=True) 
         
         
         
-        ##### Add Elevation Data #####
+    ##### Add Elevation Data #####
+    
+    if(add_elevation_bool):
+        add_elevation(gdf_of_interest = gdf_wow,
+                      ref_lat = elevation_data_lat_array,
+                      ref_long = elevation_data_long_array)
+        add_elevation(gdf_of_interest = gdf_official,
+                      ref_lat = elevation_data_lat_array,
+                      ref_long = elevation_data_long_array)
+        add_elevation(gdf_of_interest = gdf_combined,
+                      ref_lat = elevation_data_lat_array,
+                      ref_long = elevation_data_long_array)
         
-        if(add_elevation_bool):
-            add_elevation(gdf_of_interest = gdf_wow,
-                          ref_lat = elevation_data_lat_array,
-                          ref_long = elevation_data_long_array)
-            add_elevation(gdf_of_interest = gdf_official,
-                          ref_lat = elevation_data_lat_array,
-                          ref_long = elevation_data_long_array)
-            add_elevation(gdf_of_interest = gdf_combined,
-                          ref_lat = elevation_data_lat_array,
-                          ref_long = elevation_data_long_array)
+    
+    ##### Remove Missing Values #####
+    
+    if(remove_missing_val):
+        gdf_wow.dropna(subset = cols_to_remove_missing_val, inplace = True)
+        gdf_official.dropna(subset = cols_to_remove_missing_val, inplace = True)
+        gdf_combined.dropna(subset = cols_to_remove_missing_val, inplace = True)
         
         
         
@@ -381,8 +408,13 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
 
 
 
-
-
+                                                                              month_of_interest="05",
+                                                                              year_of_interest="2021", 
+                                                                              time_of_interest="12",
+                                                                              type_of_data="Rainfall", 
+                                                                              add_elevation_bool=True,
+                                                                              remove_missing_val=True, 
+                                                                              cols_to_remove_missing_val=["Rainfall Accumulation", "Rainfall Accumulation Hourly"])
 
 
 
@@ -405,7 +437,7 @@ def plot_wow_data(gdf_of_interest, type_of_plot = "Air Temperature",
     
     Outputs:
     1. Desired plot
-    """  
+    """
     
     
     ##### Plot county borders for the Island of Ireland #####
