@@ -150,6 +150,9 @@ rain_official = raw_official_rain[['filetag', 'stationid', 'long', 'lat', 'datei
 # Define an additional column for the total rainfall accumulation rather than the accumulation over the last hour
 rain_official["Rainfall Accumulation"] = rain_official.groupby(["stationid", "Day", "Month", "Year"])["totalpluvioaccnrt"].cumsum()
 
+print("Note: As advised, the Official Rainfall Rate column is currently beign set as equal to the \nRainfall Accumulation Hourly column")
+rain_official["Rainfall Rate"] = rain_official["totalpluvioaccnrt"]
+
 rain_official.replace("May", "05", inplace=True, regex=True) # Replace month with number
 rain_official.rename(columns={"totalpluvioaccnrt":"Rainfall Accumulation Hourly",
                               "long":"Longitude", 
@@ -406,15 +409,6 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
 
 
 
-
-
-                                                                              month_of_interest="05",
-                                                                              year_of_interest="2021", 
-                                                                              time_of_interest="12",
-                                                                              type_of_data="Rainfall", 
-                                                                              add_elevation_bool=True,
-                                                                              remove_missing_val=True, 
-                                                                              cols_to_remove_missing_val=["Rainfall Accumulation", "Rainfall Accumulation Hourly"])
 
 
 

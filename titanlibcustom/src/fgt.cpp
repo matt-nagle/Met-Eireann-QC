@@ -317,6 +317,21 @@ ivec titanlibcustom::fgt(const Points& points,
             // -~- Compute the background 
             vec bvalues_outer = titanlibcustom::background(elevs_outer, values_outer, num_min_prof, min_elev_diff, value_minp, value_maxp, background_elab_type, background_values, indices_global_outer, debug);
 
+
+            // *******************************************************************************************************************************
+            // *******************************************************************************************************************************
+            // *******************************************************************************************************************************
+            // MN Edit: Print out background values
+            if(debug){
+                std::cout << "MN - Printing out the background values -- iteration: " << iteration << " -- observation: " << curr << std::endl;
+                for(int i=0; i<bvalues_outer.size(); i++) {
+                    std::cout << bvalues_outer[i] << std::endl;
+                }
+            }
+            // *******************************************************************************************************************************
+            // *******************************************************************************************************************************
+            // *******************************************************************************************************************************
+
             if(debug) std::cout << "... background ok ..." << std::endl;
 
             // -~- If deviations between backgrounds and observations are small then flag = 0
@@ -848,6 +863,8 @@ bool fgt_core( const vec& lats,
     float mu = titanlibcustom::compute_quantile( 0.5, chi_stat);
     float sigma = titanlibcustom::compute_quantile( 0.75, chi_stat) - titanlibcustom::compute_quantile( 0.25, chi_stat);
     float sigma_alt = titanlibcustom::compute_quantile( 0.75, chi_stat_alt) - titanlibcustom::compute_quantile( 0.25, chi_stat_alt);
+
+
     if (sigma_alt > sigma) sigma = sigma_alt;
  
     if(sigma == 0) {
