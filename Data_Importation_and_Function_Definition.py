@@ -479,7 +479,26 @@ def plot_wow_data(gdf_of_interest, type_of_plot = "Air Temperature",
     if flags is not None:
         flag_gdf_of_interest = gdf_of_interest.copy()
         flag_gdf_of_interest['flag'] = flags
-        flag_gdf_of_interest = flag_gdf_of_interest.loc[flag_gdf_of_interest["flag"] == 1,]
+        
+        # Flag bad values red
+        if(1 in flags):
+            print("red: Stations that have been flagged as bad")
+            bad_values = flag_gdf_of_interest.loc[flag_gdf_of_interest["flag"] == 1,].copy()
+            bad_values["geometry"].plot(ax=ax, markersize=400, color="red")
 
-        flag_gdf_of_interest["geometry"].plot(ax=ax, markersize=400, color="red")
-
+        # Flag isolated inner values purple
+        if(11 in flags):
+            print("orange: Stations that are inner circle isolated (< 2 neighbours)")
+            isolated_inner = flag_gdf_of_interest.loc[flag_gdf_of_interest["flag"] == 11,].copy()
+            isolated_inner["geometry"].plot(ax=ax, markersize=400, color="orange")
+        
+        # Flag isolated outer values magenta
+        if(12 in flags):
+            print("pink: Stations that are outer circle isolated (< num_min_outer neighbours)")
+            isolated_outer = flag_gdf_of_interest.loc[flag_gdf_of_interest["flag"] == 12,].copy()
+            isolated_outer["geometry"].plot(ax=ax, markersize=400, color="hotpink")
+            
+        if(-999 in flags):
+            print("grey: Stations that have not been checked")
+            isolated_outer = flag_gdf_of_interest.loc[flag_gdf_of_interest["flag"] == -999,].copy()
+            isolated_outer["geometry"].plot(ax=ax, markersize=400, color="dimgrey")
