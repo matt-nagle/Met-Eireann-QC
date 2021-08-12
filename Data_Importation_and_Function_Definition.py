@@ -5,19 +5,26 @@ import numpy as np
 
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from Live_Station_Data_Importation import rain_wow, rain_wow_hourly_obs, temp_wow, temp_official, rain_official
 
 
+###########################################################################################################
+###########################################################################################################
+#####################################    STATIC DATA IMPORTATION    #######################################
+###########################################################################################################
+###########################################################################################################
 
-###########################################################################################################
-###########################################################################################################
-#########################################    DATA IMPORTATION    ##########################################
-###########################################################################################################
-###########################################################################################################
+
+### MUST BE EDITED! ###
+# Change file path to wherever the static data (boundaries, elevation map) are stored
+
+base_path = r"/home/matt/Documents/Met_Eireann/Data/"
+
+### MUST BE EDITED! ###
+
 
 
 ##### Import Boundaries Data #####
-
-base_path = r"/home/matt/Documents/Met_Eireann/Data/"
 
 # Import and define the boundaries for the counties of the island of Ireland
 path_to_ROI_boundaries_data = base_path + r"Boundaries/Republic of Ireland Counties - shp/7829fd91-e0c3-4246-8fb5-100f3b62f8272020329-1-8mtzfa.iikfy.shp"
@@ -49,115 +56,6 @@ elevation_data_alt = raw_elevations_30m['altitude'][:]
 # Define latitude and longitude as numpy arrays
 elevation_data_lat_array = np.asarray(elevation_data_lat)
 elevation_data_long_array = np.asarray(elevation_data_long)
-
-
-
-
-
-##### Import WOW Data #####
-
-# Import Raw Wow data for the month of May
-path_to_raw_wow_data = base_path + r"WOW_May_2021.csv"
-
-raw_wow = pd.read_csv(path_to_raw_wow_data, dtype = {"Ground State":"string"})
-
-# Create Day, Month, Year and Time columns
-tmp = raw_wow["Report Date / Time"].str.split("-", expand=True)
-tmp2 = tmp.iloc[:,2].str.split(" ", expand=True)
-
-raw_wow["Day"] = tmp2.iloc[:,0]
-raw_wow["Month"] = tmp.iloc[:,1]
-raw_wow["Year"] = tmp.iloc[:,0]
-raw_wow["Time"] = tmp2.iloc[:,1]
-
-raw_wow.loc[raw_wow["Time"].isna(), "Time"] = "00:00:00" # Replace "missing" values with midnight
-
-raw_wow["Hour"] = raw_wow["Time"].str[:2]
-
-# Define a dataframe for the Rain Accumulation data
-rain_wow = raw_wow[['Id', 'Site Id', 'Longitude', 'Latitude', 'Report Date / Time',
-                    'Day', 'Month', 'Year', 'Time', 'Hour', 'Rainfall Accumulation', 'Rainfall Rate']].copy()
-
-
-# Isolate the last observation every hour to reverse engineer the Hourly Rainfall Accumulation
-rain_wow_hourly_obs = rain_wow.drop_duplicates(subset = ["Site Id", "Hour", "Day", "Month", "Year"], keep = "last").copy()
-
-hourly_rainfall_accumulation = rain_wow_hourly_obs.groupby(["Site Id", "Day", "Month", "Year"])["Rainfall Accumulation"].diff().fillna(0)
-rain_wow_hourly_obs["Rainfall Accumulation Hourly"] = hourly_rainfall_accumulation
-
-# Define a dataframe for the Air Temperature data
-temp_wow = raw_wow[['Id', 'Site Id', 'Longitude', 'Latitude', 'Report Date / Time',
-                    'Day', 'Month', 'Year', 'Time', 'Hour', 'Air Temperature']].copy()
-
-
-
-
-
-
-##### Import Official Data #####
-
-##### Temperature Data #####
-
-# Import Raw Official data for the month of May
-path_to_raw_official_data = base_path + r"All stations May 2021 Full (updated lat long).csv"
-raw_official = pd.read_csv(path_to_raw_official_data)
-
-
-# Create Day, Month, Year and Time columns
-tmp = raw_official["datein"].str.split("-", expand=True)
-tmp2 = tmp.iloc[:,2].str.split("\xa0", expand=True)
-
-raw_official["Day"] = tmp.iloc[:,0]
-raw_official["Month"] = tmp.iloc[:,1]
-raw_official["Year"] = tmp2.iloc[:,0]
-raw_official["Time"] = tmp2.iloc[:,1]
-raw_official["Hour"] = raw_official["Time"].str[:2]
-
-
-# Define a dataframe for the Temperature data
-temp_official = raw_official[['filetag', 'stationid', 'long', 'lat', 'datein',
-                              'Day', 'Month', 'Year', 'Time', 'Hour', 't1dry', 't2dry']].copy()
-# Replace values of -99.0 with missing values to be removed
-temp_official.loc[temp_official["t1dry"] == -99.0, "t1dry"] = np.nan
-
-temp_official.replace("May", "05", inplace=True, regex=True) # Replace month with number
-temp_official.rename(columns={"t1dry":"Air Temperature", # Select t1dry as our temp obs
-                              "long":"Longitude", 
-                              "lat":"Latitude"}, inplace=True) 
-
-
-##### Rainfall Data #####
-
-# Import Raw Official rainfall data for the month of May
-path_to_raw_official_rain_data = base_path + r"Rainfall stations May 2021.csv"
-raw_official_rain = pd.read_csv(path_to_raw_official_rain_data)
-
-# Create Day, Month, Year and Time columns
-tmp = raw_official_rain["datein"].str.split("-", expand=True)
-tmp2 = tmp.iloc[:,2].str.split("\xa0", expand=True)
-
-raw_official_rain["Day"] = tmp.iloc[:,0]
-raw_official_rain["Month"] = tmp.iloc[:,1]
-raw_official_rain["Year"] = tmp2.iloc[:,0]
-raw_official_rain["Time"] = tmp2.iloc[:,1]
-raw_official_rain["Hour"] = raw_official_rain["Time"].str[:2]
-
-# Define a dataframe for the Rain Accumulation data
-rain_official = raw_official_rain[['filetag', 'stationid', 'long', 'lat', 'datein',
-                                   'Day', 'Month', 'Year', 'Time', 'Hour',
-                                   'totalpluvioaccrt_nrt','totalpluvioaccnrt', 'pluviohourrain']].copy()
-
-# Define an additional column for the total rainfall accumulation rather than the accumulation over the last hour
-rain_official["Rainfall Accumulation"] = rain_official.groupby(["stationid", "Day", "Month", "Year"])["totalpluvioaccnrt"].cumsum()
-
-print("Note: As advised, the Official Rainfall Rate column is currently beign set as equal to the \nRainfall Accumulation Hourly column")
-rain_official["Rainfall Rate"] = rain_official["totalpluvioaccnrt"]
-
-rain_official.replace("May", "05", inplace=True, regex=True) # Replace month with number
-rain_official.rename(columns={"totalpluvioaccnrt":"Rainfall Accumulation Hourly",
-                              "long":"Longitude", 
-                              "lat":"Latitude"}, inplace=True)
-
 
 
 
@@ -419,7 +317,7 @@ def isolate_data_of_interest(day_of_interest, month_of_interest, year_of_interes
 
 
 def plot_wow_data(gdf_of_interest, type_of_plot = "Air Temperature", 
-                  buffer_val = 0, flags = None):
+                  buffer_val = 0, flags = None, end_of_title = None):
     """
     This function plots the data of interest
     
@@ -428,6 +326,7 @@ def plot_wow_data(gdf_of_interest, type_of_plot = "Air Temperature",
     2. type_of_plot must be either "Rainfall Accumulation" or "Air Temperature"
     3. buffer_val (in metres) will plot a disk of radius buffer_val around each station 
     4. flags is the output from a QC check, any flags of 1 will plot a red dot on the station
+    5. end_of_title is an optional argument that allows you to add additional text to the title
     
     Outputs:
     1. Desired plot
@@ -439,9 +338,14 @@ def plot_wow_data(gdf_of_interest, type_of_plot = "Air Temperature",
     divider = make_axes_locatable(ax) # for vertically aligning the plot and the legend
     NI_counties["geometry"].plot(ax=ax, edgecolors="grey", color="w")
 
-    ax.set_title(gdf_of_interest["Day"].iloc[0] + "-" + gdf_of_interest["Month"].iloc[0] + "-" + 
-                 gdf_of_interest["Year"].iloc[0] + " " + gdf_of_interest["Time"].iloc[0][:2] + "am - " + 
-                 type_of_plot)    
+    if(end_of_title == None):
+        ax.set_title(gdf_of_interest["Day"].iloc[0] + "-" + gdf_of_interest["Month"].iloc[0] + "-" + 
+                     gdf_of_interest["Year"].iloc[0] + " " + gdf_of_interest["Time"].iloc[0][:2] + "am - " + 
+                     type_of_plot)
+    else:
+        ax.set_title(gdf_of_interest["Day"].iloc[0] + "-" + gdf_of_interest["Month"].iloc[0] + "-" + 
+                     gdf_of_interest["Year"].iloc[0] + " " + gdf_of_interest["Time"].iloc[0][:2] + "am - " + 
+                     type_of_plot + " - " + end_of_title)        
     
     cax = divider.append_axes("right", size="5%", pad=0.1)
     
