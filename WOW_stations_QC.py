@@ -216,12 +216,12 @@ if(perform_isolation_check):
 
     points = titanlib.Points(lat_np, long_np)
     
-    radius = 8000 # Radius around each station to check
+    radius_isolation_check = 15000 # Radius around each station to check
     num_min = 3 # Minimum number of neighbours
     
     ##### Input Variables #####
 
-    flags = titanlib.isolation_check(points, num_min, radius)
+    flags = titanlib.isolation_check(points, num_min, radius_isolation_check)
     
     gdf_to_check["Isolation Flags"] = flags
     
@@ -339,10 +339,10 @@ if(perform_fgt):
     background_uncertainties = np.ones(len(gdf_to_check))
     background_elab_type = titanlib.MedianOuterCircle
     N = len(lat_np)
-    num_min_outer = 3
+    num_min_outer = 4
     num_max_outer = 999 # Our goal is not to optimize speed here so let's include all observations
-    inner_radius = 10000
-    outer_radius = 20000
+    inner_radius_fgt = 12000
+    outer_radius_fgt = 20000
     num_iterations = 5
     num_min_prof = 0
     min_elev_diff = 100
@@ -363,7 +363,7 @@ if(perform_fgt):
     ##### Input Variables #####
 
     flags = titanlib.fgt(points, values, obs_to_check, background_values, background_uncertainties, 
-                         background_elab_type, num_min_outer, num_max_outer, inner_radius, outer_radius, 
+                         background_elab_type, num_min_outer, num_max_outer, inner_radius_fgt, outer_radius_fgt, 
                          num_iterations, num_min_prof, min_elev_diff, values_mina, values_maxa, values_minv, 
                          values_maxv, tpos, tneg, debug)
     
@@ -386,8 +386,8 @@ if(perform_sct):
     
     num_min = 3
     num_max = 100
-    inner_radius = 10000
-    outer_radius = 20000
+    inner_radius_sct = 10000
+    outer_radius_sct = 20000
     num_iterations = 5
     num_min_prof = 20
     min_elev_diff = 200
@@ -407,7 +407,7 @@ if(perform_sct):
     
     ##### Input Variables #####
 
-    flags = titanlib.sct(points, values, num_min, num_max, inner_radius, outer_radius,
+    flags = titanlib.sct(points, values, num_min, num_max, inner_radius_sct, outer_radius_sct,
                         num_iterations, num_min_prof, min_elev_diff, min_horizontal_scale, vertical_scale,
                         pos, neg, eps2)
     
@@ -445,10 +445,10 @@ if(perform_sct_resistant):
     background_values = np.zeros(len(lat_np))
     background_elab_type = titanlib.MedianOuterCircle
     N = len(lat_np)
-    num_min_outer = 3
+    num_min_outer = 5
     num_max_outer = 999 # Our goal is not to optimize speed here so let's include all observations
-    inner_radius = 10000
-    outer_radius = 20000
+    inner_radius_sct_res = 15000
+    outer_radius_sct_res = 20000
     num_iterations = 10
     num_min_prof = 1
     min_elev_diff = 100
@@ -471,7 +471,7 @@ if(perform_sct_resistant):
     ##### Input Variables #####
 
     flags = titanlib.sct_resistant(points, values, obs_to_check, background_values, background_elab_type, 
-                                   num_min_outer, num_max_outer, inner_radius, outer_radius, num_iterations, 
+                                   num_min_outer, num_max_outer, inner_radius_sct_res, outer_radius_sct_res, num_iterations, 
                                    num_min_prof, min_elev_diff, min_horizontal_scale, max_horizontal_scale, 
                                    kth_closest_obs_horizontal_scale, vertical_scale, values_mina, values_maxa, 
                                    values_minv, values_maxv, eps2, tpos, tneg, debug)
@@ -529,6 +529,11 @@ gdf_to_check["Failed Checks"] = failed_check
 #========================================== PLOT FLAGGED STATIONS ==============================================#
 #===============================================================================================================#
 
+##### Basic Plot of the Observations with no Stations flagged for reference #####
+plot_wow_data(gdf_to_check, type_of_plot = data_to_check, buffer_val = 0, 
+              flags = None)
+
+
 ##### Climatological Range Check Plot #####
 
 if("Climatological Flags" in gdf_to_check):
@@ -557,7 +562,14 @@ if("Range Flags" in gdf_to_check):
 
 if("Isolation Flags" in gdf_to_check):
     flags = np.array(gdf_to_check["Isolation Flags"])
-    plot_wow_data(gdf_to_check, type_of_plot = data_to_check, buffer_val = 0, 
+    
+    ## Add a buffer/radius to each station that failed the check ##
+    buffer_val_list = np.zeros(len(gdf_to_check), dtype = int)
+    indices = [i for i, x in enumerate(flags) if x == 1]
+    buffer_val_list[indices] = radius_isolation_check
+    buffer_val_list = list(buffer_val_list)
+    
+    plot_wow_data(gdf_to_check, type_of_plot = data_to_check, buffer_val = buffer_val_list, 
                   flags = flags, end_of_title = "Isolation Flags")
 
 
@@ -581,7 +593,16 @@ if("Buddy Flags" in gdf_to_check):
 
 if("FGT Flags" in gdf_to_check):
     flags = np.array(gdf_to_check["FGT Flags"])
-    plot_wow_data(gdf_to_check, type_of_plot = data_to_check, buffer_val = 0, 
+    
+    ## Add a buffer/radius to each station that failed the check ##
+    buffer_val_list = np.zeros(len(gdf_to_check), dtype = int)
+    indices_11 = [i for i, x in enumerate(flags) if x == 11]
+    buffer_val_list[indices_11] = inner_radius_fgt
+    indices_12 = [i for i, x in enumerate(flags) if x == 12]
+    buffer_val_list[indices_12] = outer_radius_fgt
+    buffer_val_list = list(buffer_val_list)    
+    
+    plot_wow_data(gdf_to_check, type_of_plot = data_to_check, buffer_val = buffer_val_list, 
                   flags = flags, end_of_title = "FGT Flags")
 
 
@@ -597,6 +618,15 @@ if("SCT Flags" in gdf_to_check):
 
 if("SCT Res Flags" in gdf_to_check):
     flags = np.array(gdf_to_check["SCT Res Flags"])
-    plot_wow_data(gdf_to_check, type_of_plot = data_to_check, buffer_val = 0, 
+    
+    ## Add a buffer/radius to each station that failed the check ##
+    buffer_val_list = np.zeros(len(gdf_to_check), dtype = int)
+    indices_11 = [i for i, x in enumerate(flags) if x == 11]
+    buffer_val_list[indices_11] = inner_radius_sct_res
+    indices_12 = [i for i, x in enumerate(flags) if x == 12]
+    buffer_val_list[indices_12] = outer_radius_sct_res
+    buffer_val_list = list(buffer_val_list)     
+    
+    plot_wow_data(gdf_to_check, type_of_plot = data_to_check, buffer_val = buffer_val_list, 
                   flags = flags, end_of_title = "SCT Res Flags")
 
